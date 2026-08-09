@@ -55,7 +55,8 @@ class AutoStartManager:
     def open_palworld_port_socket(self):
         """Open socket before listen. Thread-safe."""
         palworld_server_port = settings.palworldServerPort
-        max_retries = 5
+        # PalServer can hold UDP 8211 for a while during shutdown.
+        max_retries = 30
         retry_delay = 2
 
         for attempt in range(max_retries):
@@ -74,12 +75,17 @@ class AutoStartManager:
                         return False
                     self.sock = new_sock
                     self.is_aborting = False
+                logging.info(
+                    f"Auto-start listening for connections on UDP port {palworld_server_port}"
+                )
                 return True
             except Exception as e:
                 if attempt < max_retries - 1:
-                    logging.error(
-                        f"Palworld port {palworld_server_port} is still in use. Cannot bind to port: {e}"
-                    )
+                    if attempt == 0 or (attempt + 1) % 5 == 0:
+                        logging.warning(
+                            f"Palworld port {palworld_server_port} still in use "
+                            f"(attempt {attempt + 1}/{max_retries}): {e}"
+                        )
                     time.sleep(retry_delay)
                     continue
                 else:
@@ -141,9 +147,35 @@ class AutoStartManager:
         """Check if the received data is a player connection packet."""
         return data.startswith(b"\x09\x08\x00")
 
+    def _wait_until_server_stopped(self, timeout=60):
+        """Wait until PalServer is fully gone so we can bind the game port."""
+        if self.controller is None:
+            return True
+        deadline = time.time() + timeout
+        warned = False
+        while self.controller.is_palworld_process_running():
+            if self.is_aborting:
+                return False
+            if time.time() >= deadline:
+                logging.error(
+                    "Timed out waiting for PalServer to exit before re-arming auto-start"
+                )
+                return False
+            if not warned:
+                logging.info(
+                    "Waiting for PalServer process to exit before listening again..."
+                )
+                warned = True
+            time.sleep(1)
+        return True
+
     def listen_palworld_access_core(self):
         """Listen from PalWorld server port."""
-        if self.controller is None or self.controller.is_palworld_process_running():
+        if self.controller is None:
+            return
+
+        # Do not bail permanently if the process is still dying — wait, then listen.
+        if not self._wait_until_server_stopped():
             return
 
         for attempt in range(3):
@@ -151,28 +183,42 @@ class AutoStartManager:
                 return
 
             if not self.open_palworld_port_socket():
+                logging.error("Auto-start could not bind the game port; not listening")
                 return
 
             if self.wait_for_player_connection():
                 self.close_palworld_port_socket()
                 time.sleep(0.5)
                 if self.controller is not None:
-                    self.controller.start_server()
-                    time.sleep(2)
-                    if self.controller.is_palworld_process_running():
-                        return
-                    logging.warning("Server did not start successfully, reconnecting...")
+                    # Retry start — stop-cooldown / slow process exit can make the
+                    # first attempt fail, and the client will not send another
+                    # probe packet for a while.
+                    for start_try in range(8):
+                        if self.is_aborting:
+                            return
+                        self.controller.start_server()
+                        time.sleep(2)
+                        if self.controller.is_palworld_process_running():
+                            return
+                        logging.warning(
+                            f"Server did not start (attempt {start_try + 1}/8); retrying..."
+                        )
+                        time.sleep(1)
+                    logging.warning(
+                        "Server still not running after retries; listening again..."
+                    )
             else:
                 self.close_palworld_port_socket()
                 return
 
     def listen_palworld_access(self, data=None):
         """Start listening for PalWorld access."""
+        logging.info("Re-arming auto-start listener")
         # Stop any existing listen thread
         self.stop_listen_thread()
 
         # Add a small delay to allow the port to be released
-        time.sleep(1)
+        time.sleep(2)
 
         # `is_aborting` is only ever cleared inside open_palworld_port_socket()'s
         # success path. If the *previous* cycle ended by successfully starting

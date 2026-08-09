@@ -99,7 +99,13 @@ class PalWorldController:
         self.current_server_info["players"] = []
         self.current_server_info.pop("players_unknown", None)
         self.stop_server_info_update_thread()
-        self._start_detection_loop()
+        # When auto-start is enabled, AutoStartManager re-arms the UDP listener
+        # on SERVER_STOPPED. Starting the detection loop here races with the
+        # dying PalServer process: find_process_pid can briefly see it, emit
+        # SERVER_STARTED, and stop_listen_thread() — permanently breaking the
+        # next auto-start cycle because nothing re-arms the listener.
+        if not settings.autoStart:
+            self._start_detection_loop()
 
     def _on_server_status(self, data):
         self.current_server_info["running"] = data.get("running", False)
