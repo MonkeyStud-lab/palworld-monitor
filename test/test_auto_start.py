@@ -66,8 +66,8 @@ class TestAutoStartPacketDetection:
         # The first packet from Palworld clients starts with \x09\x08\x00
         assert manager._is_player_connection_packet(b"\x09\x08\x00") is True
 
-    def test_invalid_packet(self, mock_settings):
-        """Test rejection of non-player packets."""
+    def test_tiny_non_magic_packet_rejected(self, mock_settings):
+        """Tiny non-magic packets are treated as scanner noise."""
         manager = AutoStartManager(None)
         assert manager._is_player_connection_packet(b"\x00\x00\x00") is False
 
@@ -76,9 +76,8 @@ class TestAutoStartPacketDetection:
         manager = AutoStartManager(None)
         assert manager._is_player_connection_packet(b"") is False
 
-    def test_partial_match(self, mock_settings):
-        """Test that partial matches to the pattern are rejected."""
-        # Only first byte matches but not the full pattern
+    def test_short_partial_match_rejected(self, mock_settings):
+        """Short packets that are not the classic magic prefix are ignored."""
         manager = AutoStartManager(None)
         assert manager._is_player_connection_packet(b"\x09\x00\x00") is False
 
@@ -88,12 +87,10 @@ class TestAutoStartPacketDetection:
         # Valid header followed by random data
         assert manager._is_player_connection_packet(b"\x09\x08\x00" + b"\x01" * 50) is True
 
-    def test_random_garbage_rejected(self, mock_settings):
-        """Test that random garbage data is rejected."""
-        import os
+    def test_modern_client_sized_probe_accepted(self, mock_settings):
+        """Palworld 1.x probes may not use the classic magic prefix."""
         manager = AutoStartManager(None)
-        # Random bytes are unlikely to match the pattern
-        assert manager._is_player_connection_packet(os.urandom(100)) is False
+        assert manager._is_player_connection_packet(b"\x01\x02\x03\x04\x05") is True
 
 
 class TestAutoStartSocketHandling:

@@ -86,7 +86,13 @@ def main():
 
     if settings.autoStart:
         auto_start_manager = AutoStartManager(palworld_controller)
-        if not server_running:
+        if server_running:
+            logging.info(
+                "Auto-start enabled, but PalServer appears to already be running "
+                "(PID tracking). Stop it first if you want UDP auto-start."
+            )
+        else:
+            logging.info("Auto-start enabled; waiting for a client to connect...")
             auto_start_manager.listen_palworld_access()
 
     if settings.useWebServer:

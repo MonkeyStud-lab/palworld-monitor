@@ -133,10 +133,22 @@ class AutoStartManager:
             if sock is None:
                 return False
             try:
-                data, _addr = sock.recvfrom(1024)
+                data, addr = sock.recvfrom(1024)
+                prefix = data[:12].hex(" ") if data else "(empty)"
                 if self._is_player_connection_packet(data):
-                    logging.info("A player is attempting to connect. Starting Palworld Server...")
+                    logging.info(
+                        "A player is attempting to connect from %s "
+                        "(UDP prefix=%s). Starting Palworld Server...",
+                        addr[0],
+                        prefix,
+                    )
                     return True
+                logging.info(
+                    "Ignoring UDP packet on game port from %s (prefix=%s, len=%s)",
+                    addr[0],
+                    prefix,
+                    len(data),
+                )
             except (OSError, Exception) as e:
                 logging.error(f"Error in wait_for_player_connection: {e}")
                 logging.error(traceback.format_exc())
@@ -144,8 +156,18 @@ class AutoStartManager:
         return False
 
     def _is_player_connection_packet(self, data):
-        """Check if the received data is a player connection packet."""
-        return data.startswith(b"\x09\x08\x00")
+        """Return True if inbound UDP looks like a client connection attempt.
+
+        Classic Palworld probes start with ``\\x09\\x08\\x00``, but 1.x clients
+        have been observed with other prefixes. Any non-trivial datagram on the
+        game port is treated as a wake-up; empty/tiny scanner noise is ignored.
+        """
+        if not data:
+            return False
+        if data.startswith(b"\x09\x08\x00"):
+            return True
+        # Palworld 1.x / crossplay clients: accept reasonably sized probes.
+        return len(data) >= 4
 
     def _wait_until_server_stopped(self, timeout=60):
         """Wait until PalServer is fully gone so we can bind the game port."""
