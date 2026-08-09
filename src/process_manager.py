@@ -68,6 +68,10 @@ class OSProcessManager:
 
     def set_known_pid(self, pid):
         with self._lock:
+            if pid is None:
+                self.launched_pid = None
+                self._remove_pid_file()
+                return
             try:
                 self.launched_pid = int(pid)
                 self._save_pid_to_file(self.launched_pid)
@@ -135,9 +139,13 @@ class OSProcessManager:
                 bus.publish(Event.SERVER_STOPPED, {"pid": terminated_pid})
                 return True
             except psutil.NoSuchProcess:
+                # Process already gone — still emit SERVER_STOPPED so auto-start
+                # re-arms and the status poller shuts down.
+                terminated_pid = self.launched_pid
                 self._remove_pid_file()
                 self.launched_pid = None
-                return False
+                bus.publish(Event.SERVER_STOPPED, {"pid": terminated_pid})
+                return True
             except psutil.AccessDenied:
                 return False
             except Exception:

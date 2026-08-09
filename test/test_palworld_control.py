@@ -167,6 +167,53 @@ class TestPalWorldController:
             )
             mock_handle.assert_called_once()
 
+    def test_server_status_ignores_auto_stop_when_not_running(
+        self, mock_settings, mock_client, mock_process_manager, mock_player_manager
+    ):
+        controller = PalWorldController(
+            client=mock_client,
+            process_manager=mock_process_manager,
+            player_manager=mock_player_manager,
+        )
+        with (
+            patch.object(controller, "_handle_auto_stop_condition") as mock_handle,
+            patch.object(controller, "_cancel_auto_stop_delay") as mock_cancel,
+        ):
+            controller._on_server_status(
+                {
+                    "running": False,
+                    "playerCount": 0,
+                    "players": [],
+                    "banned_players": [],
+                }
+            )
+            mock_handle.assert_not_called()
+            mock_cancel.assert_called_once()
+
+    def test_server_status_ignores_auto_stop_when_players_unknown(
+        self, mock_settings, mock_client, mock_process_manager, mock_player_manager
+    ):
+        controller = PalWorldController(
+            client=mock_client,
+            process_manager=mock_process_manager,
+            player_manager=mock_player_manager,
+        )
+        with (
+            patch.object(controller, "_handle_auto_stop_condition") as mock_handle,
+            patch.object(controller, "_cancel_auto_stop_delay") as mock_cancel,
+        ):
+            controller._on_server_status(
+                {
+                    "running": True,
+                    "playerCount": 0,
+                    "players": [],
+                    "players_unknown": True,
+                    "banned_players": [],
+                }
+            )
+            mock_handle.assert_not_called()
+            mock_cancel.assert_not_called()
+
     @patch("src.events.bus.publish")
     def test_kick_player(
         self,

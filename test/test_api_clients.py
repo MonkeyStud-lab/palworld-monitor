@@ -113,14 +113,24 @@ class TestRestClient:
             assert count == expected_count
 
     def test_get_player_count_request_fails(self, mock_settings):
-        """Test getting player count when request fails."""
+        """API failures must return None so auto-stop does not treat them as empty."""
         with patch(
             "requests.get", side_effect=requests.exceptions.RequestException("Error")
         ):
             client = RestClient()
             count = client.get_player_count()
 
-            assert count == 0
+            assert count is None
+
+    def test_get_player_names_request_fails(self, mock_settings):
+        """API failures must return None so auto-stop does not treat them as empty."""
+        with patch(
+            "requests.get", side_effect=requests.exceptions.RequestException("Error")
+        ):
+            client = RestClient()
+            players = client.get_player_names()
+
+            assert players is None
 
     def test_get_player_names(self, mock_settings, mock_http_response):
         """Test getting player names."""

@@ -92,7 +92,12 @@ class PalWorldController:
 
     def _on_server_stopped(self, data):
         self.last_server_stopped_time = time.time()
-        logging.debug("Controller: Server stopped event received")
+        logging.info("Controller: Server stopped event received")
+        self._cancel_auto_stop_delay()
+        self.current_server_info["running"] = False
+        self.current_server_info["playerCount"] = 0
+        self.current_server_info["players"] = []
+        self.current_server_info.pop("players_unknown", None)
         self.stop_server_info_update_thread()
         self._start_detection_loop()
 
@@ -100,6 +105,15 @@ class PalWorldController:
         self.current_server_info["running"] = data.get("running", False)
         self.current_server_info["playerCount"] = data.get("playerCount", 0)
         self.current_server_info["players"] = data.get("players", [])
+
+        # Never auto-stop when the process is already down, or when we could
+        # not reach the player API (connection refused / auth errors). Treating
+        # those as "0 players" is what caused the infinite stop loop.
+        if not data.get("running", False):
+            self._cancel_auto_stop_delay()
+            return
+        if data.get("players_unknown"):
+            return
         if settings.autoStop and data.get("playerCount", 0) == 0:
             self._handle_auto_stop_condition()
         else:
@@ -182,11 +196,27 @@ class PalWorldController:
         except Exception:
             logging.exception("Server detection loop failed")
 
+    # Palworld often needs well over 30s before REST reports players. A short
+    # guard caused auto-stop to fire during boot and then loop forever.
+    AUTO_STOP_STARTUP_GUARD_SECONDS = 120
+
     def stop_server(self):
         logging.info("Palworld server stop command received")
-        if self._should_block_stop():
-            return False
         self._cancel_auto_stop_delay()
+        if not self.is_palworld_process_running():
+            logging.warning(
+                "An attempt to stop the Palworld server was made, but it was not running."
+            )
+            # Still tear down polling / re-arm auto-start. A missed
+            # SERVER_STOPPED event is what left the monitor stuck looping.
+            self._force_stopped_state()
+            return False
+        current_time = time.time()
+        if current_time - self.last_server_stopped_time < self.server_stopping_cooldown:
+            logging.warning(
+                "You attempted to restart the server too Quickly after trying to stop it."
+            )
+            return False
         try:
             bus.publish(Event.CMD_STOP_SERVER, {})
             return True
@@ -194,19 +224,20 @@ class PalWorldController:
             logging.error(f"Error issuing stop command: {e}")
             return False
 
-    def _should_block_stop(self):
-        if not self.is_palworld_process_running():
-            logging.warning(
-                "An attempt to stop the Palworld server was made, but it was not running."
-            )
-            return True
-        current_time = time.time()
-        if current_time - self.last_server_stopped_time < self.server_stopping_cooldown:
-            logging.warning(
-                "You attempted to restart the server too Quickly after trying to stop it."
-            )
-            return True
-        return False
+    def _force_stopped_state(self):
+        """Recover when the process is gone but SERVER_STOPPED never fired."""
+        self.current_server_info["running"] = False
+        self.current_server_info["playerCount"] = 0
+        self.current_server_info["players"] = []
+        self.current_server_info.pop("players_unknown", None)
+        self.stop_server_info_update_thread()
+        if self.process_manager.launched_pid is not None:
+            pid = self.process_manager.launched_pid
+            self.process_manager.set_known_pid(None)
+            bus.publish(Event.SERVER_STOPPED, {"pid": pid})
+        else:
+            # Ensure auto-start re-arms even if pid was already cleared.
+            bus.publish(Event.SERVER_STOPPED, {"pid": None})
 
     def _update_server_status(self):
         """Poll server and emit SERVER_STATUS event."""
@@ -217,13 +248,29 @@ class PalWorldController:
                 "running": self.current_server_info["running"],
                 "playerCount": self.current_server_info["playerCount"],
                 "players": list(self.current_server_info["players"]),
+                "players_unknown": bool(
+                    self.current_server_info.get("players_unknown")
+                ),
                 "banned_players": list(self.banlist_manager.get_banned_players()),
             },
         )
 
     def _update_server_info_with_players(self):
-        self.current_server_info["running"] = self.is_palworld_process_running()
+        running = self.is_palworld_process_running()
+        self.current_server_info["running"] = running
+        if not running:
+            self.current_server_info["playerCount"] = 0
+            self.current_server_info["players"] = []
+            self.current_server_info.pop("players_unknown", None)
+            return
+
         players = self.get_player_names()
+        if players is None:
+            # API down/booting — do not treat as an empty server.
+            self.current_server_info["players_unknown"] = True
+            return
+
+        self.current_server_info.pop("players_unknown", None)
         self.current_server_info["playerCount"] = len(players)
         self.current_server_info["players"] = players
         if settings.enablePlayerTracking:
@@ -232,8 +279,11 @@ class PalWorldController:
     def _handle_auto_stop_condition(self):
         if self.auto_stop_delay_thread and self.auto_stop_delay_thread.is_alive():
             return
-        if time.time() - self.last_server_started_time < 30:
-            remaining = 30 - (time.time() - self.last_server_started_time)
+        if not self.is_palworld_process_running():
+            return
+        guard = self.AUTO_STOP_STARTUP_GUARD_SECONDS
+        if time.time() - self.last_server_started_time < guard:
+            remaining = guard - (time.time() - self.last_server_started_time)
             logging.debug(f"Auto-stop startup guard active, {remaining:.0f}s remaining")
             return
         logging.info("Auto-stop condition met, starting delay thread")
@@ -245,7 +295,7 @@ class PalWorldController:
 
     def _cancel_auto_stop_delay(self):
         if self.auto_stop_delay_thread and self.auto_stop_delay_thread.is_alive():
-            logging.debug("Auto-stop cancelled (players detected)")
+            logging.debug("Auto-stop cancelled")
             self._auto_mode_cancelled = True
 
     def _auto_stop_delay_worker(self):
@@ -253,6 +303,17 @@ class PalWorldController:
         time.sleep(settings.autoStopDelay)
         if self._auto_mode_cancelled:
             logging.debug("Auto-stop cancelled during sleep")
+            return
+        if not self.is_palworld_process_running():
+            logging.info("Auto-stop skipped: server already stopped")
+            self._force_stopped_state()
+            return
+        players = self.get_player_names()
+        if players is None:
+            logging.warning("Auto-stop skipped: player API unavailable")
+            return
+        if len(players) > 0:
+            logging.info("Auto-stop skipped: players are online")
             return
         logging.info("Auto-stop delay elapsed, stopping server")
         self.stop_server()
