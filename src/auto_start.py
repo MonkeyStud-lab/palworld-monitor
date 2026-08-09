@@ -209,15 +209,18 @@ class AutoStartManager:
                 return
 
             if self.wait_for_player_connection():
+                # close_palworld_port_socket() sets is_aborting to unblock recv().
+                # Clear it again before start retries — otherwise we return here
+                # without ever calling start_server().
                 self.close_palworld_port_socket()
+                with self._lock:
+                    self.is_aborting = False
                 time.sleep(0.5)
                 if self.controller is not None:
                     # Retry start — stop-cooldown / slow process exit can make the
                     # first attempt fail, and the client will not send another
                     # probe packet for a while.
                     for start_try in range(8):
-                        if self.is_aborting:
-                            return
                         self.controller.start_server()
                         time.sleep(2)
                         if self.controller.is_palworld_process_running():
