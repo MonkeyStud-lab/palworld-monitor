@@ -213,12 +213,36 @@ h2 {
 	background-color: var(--button-hover);
 }
 
+.btn:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
 .btnContainer {
 	margin-bottom: 30px;
 	display: flex;
 	flex-direction: row;
 	gap: 10px;
 	align-items: center;
+	flex-wrap: wrap;
+}
+
+.steam-update-status {
+	margin: -10px 0 24px;
+	font-size: 16px;
+	font-family: "Poppins", sans-serif;
+}
+
+.steam-update-running {
+	color: var(--text-primary);
+}
+
+.steam-update-success {
+	color: #2e7d32;
+}
+
+.steam-update-error {
+	color: #c62828;
 }
 
 /* Players Table Styles */

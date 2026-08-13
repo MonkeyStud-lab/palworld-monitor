@@ -58,7 +58,14 @@
             onclick="handleServerAction('startServer')">
             Start Server
         </button>
+
+        <!-- Steam / LGSM update -->
+        <button id="updateBtn" class="btn" title="Stop PalServer if needed, then update via SteamCMD (or LGSM)"
+            onclick="confirmAndHandleServerAction('updateServer')">
+            Update Server
+        </button>
     </div>
+    <div id="steamUpdateStatus" class="steam-update-status" style="display:none;" aria-live="polite"></div>
     {% endif %}
 
     <!-- Player Information -->

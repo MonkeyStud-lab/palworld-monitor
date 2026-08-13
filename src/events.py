@@ -51,6 +51,7 @@ class Event:
 
     # Status events
     SERVER_STATUS = "SERVER_STATUS"
+    STEAM_UPDATE_STATUS = "STEAM_UPDATE_STATUS"
     # Command events
     CMD_START_SERVER = "CMD_START_SERVER"
     CMD_STOP_SERVER = "CMD_STOP_SERVER"

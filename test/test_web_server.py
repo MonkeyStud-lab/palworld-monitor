@@ -67,6 +67,10 @@ class TestWebServerEventHandlers:
         server.palworld_controller.player_manager.get_online_players.return_value = (
             processed_players
         )
+        server.palworld_controller.get_steam_update_status.return_value = {
+            "state": "idle",
+            "message": "",
+        }
         server.state_cache = {
             "running": False,
             "playerCount": 0,

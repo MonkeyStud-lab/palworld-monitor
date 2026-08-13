@@ -115,6 +115,7 @@ class WebServer:
         bus.subscribe(Event.SERVER_STARTED, self._on_server_started)
         bus.subscribe(Event.SERVER_STOPPED, self._on_server_stopped)
         bus.subscribe(Event.SERVER_STATUS, self._on_server_status)
+        bus.subscribe(Event.STEAM_UPDATE_STATUS, self._on_steam_update_status)
 
         self._sse_clients: list[queue.Queue] = []
         self._sse_lock = threading.RLock()
@@ -193,8 +194,30 @@ class WebServer:
             "banned_players": list(data.get("banned_players", [])),
             "total_player_count": total_player_count,
             "autoStopDelay": round(settings.autoStopDelay),
+            "steamUpdate": self.palworld_controller.get_steam_update_status(),
         }
         self._broadcast_sse(payload)
+
+    def _on_steam_update_status(self, data):
+        """Push Steam/LGSM update progress to SSE clients."""
+        with self._lock:
+            players = list(self.state_cache["players"])
+            banned = list(self.state_cache["banned_players"])
+            total_player_count = self.state_cache["playerCount"]
+            state = dict(self.state_cache)
+        self._broadcast_sse(
+            {
+                "data": state,
+                "players": players,
+                "banned_players": banned,
+                "total_player_count": total_player_count,
+                "autoStopDelay": round(settings.autoStopDelay),
+                "steamUpdate": {
+                    "state": data.get("state", "idle"),
+                    "message": data.get("message", ""),
+                },
+            }
+        )
 
     def _register_filters(self):
         """Register custom Jinja2 filters."""
@@ -297,6 +320,7 @@ class WebServer:
                         "banned_players": list(self.state_cache["banned_players"]),
                         "total_player_count": self.state_cache["playerCount"],
                         "autoStopDelay": round(settings.autoStopDelay),
+                        "steamUpdate": self.palworld_controller.get_steam_update_status(),
                     }
                     yield f"data: {json.dumps(snapshot)}\n\n"
 
@@ -386,6 +410,7 @@ class WebServer:
                 ),
                 autoStopDelay=round(settings.autoStopDelay),
                 banned_players=list(self.state_cache["banned_players"]),
+                steamUpdate=self.palworld_controller.get_steam_update_status(),
                 **extra,
             )
 
@@ -429,6 +454,9 @@ class WebServer:
             self.palworld_controller.start_server()
         elif action == "stopServer":
             self.palworld_controller.stop_server()
+        elif action == "updateServer":
+            ok, message = self.palworld_controller.update_server()
+            return self._json_state(success=ok, message=message)
         return self._json_state()
 
     def _handle_kick(self):

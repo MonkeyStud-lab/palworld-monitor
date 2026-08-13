@@ -18,6 +18,12 @@ from src.settings import settings
 from src.player_manager import PlayerManager
 from src.banlist_manager import BanlistManager
 from src.events import bus, Event
+from src.steam_update import (
+    resolve_install_dir,
+    resolve_steamcmd_path,
+    run_lgsm_update,
+    run_steamcmd_update,
+)
 import os
 import platform
 
@@ -53,6 +59,13 @@ class PalWorldController:
 
         self._detection_thread = None
         self._detection_stop_event = threading.Event()
+
+        self._update_lock = threading.Lock()
+        self._steam_update_thread = None
+        self._steam_update_status = {
+            "state": "idle",  # idle | running | success | error
+            "message": "",
+        }
 
         self._setup_subscriptions()
         self._detect_existing_server_process()
@@ -150,7 +163,93 @@ class PalWorldController:
             self.is_palworld_server_starting = False
             return False
 
+    def is_steam_updating(self):
+        with self._update_lock:
+            return self._steam_update_status.get("state") == "running"
+
+    def get_steam_update_status(self):
+        with self._update_lock:
+            return dict(self._steam_update_status)
+
+    def update_server(self):
+        """Stop PalServer if needed, then update via SteamCMD or LGSM in a background thread."""
+        with self._update_lock:
+            if self._steam_update_status.get("state") == "running":
+                return False, "An update is already in progress"
+            self._steam_update_status = {
+                "state": "running",
+                "message": "Update started…",
+            }
+        # Publish outside the lock so SSE subscribers don't block the worker start.
+        bus.publish(
+            Event.STEAM_UPDATE_STATUS,
+            {"state": "running", "message": "Update started…"},
+        )
+
+        self._steam_update_thread = threading.Thread(
+            target=self._steam_update_worker, daemon=True
+        )
+        self._steam_update_thread.start()
+        return True, "Update started in the background"
+
+    def _set_steam_update_status(self, state, message):
+        with self._update_lock:
+            self._steam_update_status = {"state": state, "message": message}
+        logging.info("Steam update status: %s — %s", state, message)
+        bus.publish(
+            Event.STEAM_UPDATE_STATUS,
+            {"state": state, "message": message},
+        )
+
+    def _steam_update_worker(self):
+        try:
+            self._cancel_auto_stop_delay()
+
+            if self.is_palworld_process_running():
+                self._set_steam_update_status("running", "Stopping PalServer…")
+                self.stop_server()
+                deadline = time.time() + 120
+                while self.is_palworld_process_running():
+                    if time.time() >= deadline:
+                        self._set_steam_update_status(
+                            "error", "Timed out waiting for PalServer to stop"
+                        )
+                        return
+                    time.sleep(1)
+
+            if getattr(settings, "useLGSM", False):
+                self._set_steam_update_status("running", "Updating via LGSM…")
+                ok, message = run_lgsm_update(settings.palworldServerExePath)
+            else:
+                steamcmd = resolve_steamcmd_path()
+                install_dir = resolve_install_dir()
+                if not steamcmd:
+                    self._set_steam_update_status(
+                        "error",
+                        "SteamCMD not found. Set palserver.steamcmdPath in settings.yaml",
+                    )
+                    return
+                if not install_dir:
+                    self._set_steam_update_status(
+                        "error",
+                        "Could not determine install directory. "
+                        "Set palserver.steamcmdInstallDir in settings.yaml",
+                    )
+                    return
+                self._set_steam_update_status(
+                    "running", f"Updating via SteamCMD into {install_dir}…"
+                )
+                ok, message = run_steamcmd_update(steamcmd, install_dir)
+
+            self._set_steam_update_status("success" if ok else "error", message)
+        except Exception as e:
+            logging.exception("Steam update worker failed")
+            self._set_steam_update_status("error", f"Update failed: {e}")
+
     def _should_block_start(self, current_time):
+        if self.is_steam_updating():
+            logging.warning("Cannot start PalServer while a Steam update is running.")
+            return True
         if self.is_palworld_process_running():
             logging.warning(
                 "The attempt to start the Palworld server was made, but it is already running."

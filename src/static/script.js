@@ -89,8 +89,11 @@ function updateServerStatusUI(data, response) {
     const offElements = document.querySelectorAll(".status-indicator.off");
     const offBtn = document.getElementById("offBtn");
     const onBtn = document.getElementById("onBtn");
+    const updateBtn = document.getElementById("updateBtn");
     const statusOn = document.querySelector('.status-on');
     const statusOff = document.querySelector('.status-off');
+    const steamUpdate = (response && response.steamUpdate) || { state: 'idle', message: '' };
+    const updating = steamUpdate.state === 'running';
 
     if (data.running) {
         if (statusOn) statusOn.style.display = "inline-block";
@@ -106,8 +109,35 @@ function updateServerStatusUI(data, response) {
         runningElements.forEach(el => el.style.display = "none");
         offElements.forEach(el => el.style.display = "inline-block");
         if (offBtn) offBtn.style.display = "none";
-        if (onBtn) onBtn.style.display = "block";
+        if (onBtn) onBtn.style.display = updating ? "none" : "block";
     }
+
+    if (updateBtn) {
+        updateBtn.disabled = updating;
+        updateBtn.textContent = updating ? "Updating…" : "Update Server";
+    }
+    if (offBtn) offBtn.disabled = updating;
+    if (onBtn) onBtn.disabled = updating;
+
+    updateSteamUpdateStatusUI(steamUpdate);
+}
+
+function updateSteamUpdateStatusUI(steamUpdate) {
+    const el = document.getElementById("steamUpdateStatus");
+    if (!el || !steamUpdate) return;
+
+    const state = steamUpdate.state || 'idle';
+    const message = steamUpdate.message || '';
+    if (state === 'idle' || !message) {
+        el.style.display = "none";
+        el.textContent = "";
+        el.className = "steam-update-status";
+        return;
+    }
+
+    el.style.display = "block";
+    el.textContent = message;
+    el.className = `steam-update-status steam-update-${state}`;
 }
 
 function updatePlayerInfoUI(data, response) {
@@ -278,9 +308,15 @@ async function makeServerRequest(action) {
     }
 }
 
-// Confirmation handler for server stop action
+// Confirmation handler for destructive server actions
 function confirmAndHandleServerAction(action) {
-    if (confirm('Are you sure you want to stop the server?')) {
+    let message = 'Are you sure you want to stop the server?';
+    if (action === 'updateServer') {
+        message =
+            'Update the Palworld server via SteamCMD/LGSM?\n\n' +
+            'The server will be stopped if it is running. This may take several minutes.';
+    }
+    if (confirm(message)) {
         handleServerAction(action);
     }
 }
@@ -289,11 +325,16 @@ function confirmAndHandleServerAction(action) {
 async function handleServerAction(action) {
     try {
         const response = await makeServerRequest(action);
+        if (!response) return;
         let data = response.data;
 
         updateServerStatusUI(data, response);
         updatePlayerInfoUI(data, response);
         updateLastUpdatedUI();
+
+        if (action === 'updateServer' && response.success === false && response.message) {
+            alert(response.message);
+        }
     } catch (error) {
         console.error('Error handling server action:', error);
     }

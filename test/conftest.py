@@ -89,6 +89,9 @@ def mock_settings(monkeypatch):
     mock.enablePlayerTracking = True
     mock.pollingRate = 5
     mock.protocol = "REST"
+    mock.useLGSM = False
+    mock.steamcmdPath = None
+    mock.steamcmdInstallDir = None
     mock.controlServerThroughWeb = True
     mock.showServerIPAddress = False
     mock.firstPacketPattern = b"\x09\x08\x00"
@@ -100,6 +103,7 @@ def mock_settings(monkeypatch):
     monkeypatch.setattr("src.player_manager.settings", mock)
     monkeypatch.setattr("src.banlist_manager.settings", mock)
     monkeypatch.setattr("src.web_server.settings", mock)
+    monkeypatch.setattr("src.steam_update.settings", mock)
     return mock
 
 
@@ -164,6 +168,11 @@ def web_app_factory():
     controller.player_manager.get_online_players.return_value = []
     controller.start_server.return_value = True
     controller.stop_server.return_value = True
+    controller.update_server.return_value = (True, "Update started in the background")
+    controller.get_steam_update_status.return_value = {
+        "state": "idle",
+        "message": "",
+    }
     controller.kick_player.return_value = True
     controller.ban_player.return_value = True
     controller.unban_player.return_value = True

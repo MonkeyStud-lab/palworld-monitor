@@ -67,6 +67,8 @@ it to change ports, polling rate, auto-stop delay, etc.
 | `palserver.adminPassword` ⚑ | `--admin-password PASS` | Admin password from your server's `PalWorldSettings.ini` |
 | `palserver.pollingRate` ⚑ | `--polling-rate SEC` | Seconds between status polls (default `5`) |
 | `palserver.useLGSM` | `--use-lgsm` | Manage the server through a LinuxGSM script instead of launching it directly (Linux only) |
+| `palserver.steamcmdPath` | — | Optional path to SteamCMD for the web UI **Update Server** button (auto-detected if unset; ignored when `useLGSM` is true) |
+| `palserver.steamcmdInstallDir` | — | Optional PalServer install dir for SteamCMD (defaults to the directory of `exePath`) |
 | `web.password` ⚑ | `--web-password PASS` | Password for the web admin interface |
 | `palserver.host` | `--host HOST` | Palworld server host |
 | `palserver.port` | `--server-port PORT` | Palworld game server port |
@@ -102,7 +104,9 @@ directly. This keeps LGSM's own state tracking in sync — including its
 `monitor` cron job, which would otherwise think a monitor-initiated stop was
 a crash and restart the server. Player/auto-stop detection is unaffected
 since it works by scanning OS processes for `PalServer`, regardless of how
-it was launched.
+it was launched. The web UI **Update Server** button likewise runs the LGSM
+script's `update` command when `useLGSM` is true; otherwise it runs SteamCMD
+`app_update 2394010 validate` (stopping PalServer first if needed).
 
 Requirements:
 
