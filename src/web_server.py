@@ -454,7 +454,7 @@ class WebServer:
             self.palworld_controller.start_server()
         elif action == "stopServer":
             self.palworld_controller.stop_server()
-        elif action == "updateServer":
+        elif action in ("checkForUpdates", "updateServer"):
             ok, message = self.palworld_controller.update_server()
             return self._json_state(success=ok, message=message)
         return self._json_state()

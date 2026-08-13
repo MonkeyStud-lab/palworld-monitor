@@ -114,7 +114,16 @@ function updateServerStatusUI(data, response) {
 
     if (updateBtn) {
         updateBtn.disabled = updating;
-        updateBtn.textContent = updating ? "Updating…" : "Update Server";
+        const msg = (steamUpdate.message || '').toLowerCase();
+        if (!updating) {
+            updateBtn.textContent = "Check for Updates";
+        } else if (msg.includes('checking')) {
+            updateBtn.textContent = "Checking…";
+        } else if (msg.includes('stopping')) {
+            updateBtn.textContent = "Stopping…";
+        } else {
+            updateBtn.textContent = "Updating…";
+        }
     }
     if (offBtn) offBtn.disabled = updating;
     if (onBtn) onBtn.disabled = updating;
@@ -311,10 +320,11 @@ async function makeServerRequest(action) {
 // Confirmation handler for destructive server actions
 function confirmAndHandleServerAction(action) {
     let message = 'Are you sure you want to stop the server?';
-    if (action === 'updateServer') {
+    if (action === 'checkForUpdates' || action === 'updateServer') {
         message =
-            'Update the Palworld server via SteamCMD/LGSM?\n\n' +
-            'The server will be stopped if it is running. This may take several minutes.';
+            'Check Steam for Palworld server updates?\n\n' +
+            'If an update is available, the server will be stopped and updated. ' +
+            'If you are already up to date, nothing will change.';
     }
     if (confirm(message)) {
         handleServerAction(action);
@@ -332,7 +342,11 @@ async function handleServerAction(action) {
         updatePlayerInfoUI(data, response);
         updateLastUpdatedUI();
 
-        if (action === 'updateServer' && response.success === false && response.message) {
+        if (
+            (action === 'checkForUpdates' || action === 'updateServer') &&
+            response.success === false &&
+            response.message
+        ) {
             alert(response.message);
         }
     } catch (error) {

@@ -59,10 +59,11 @@
             Start Server
         </button>
 
-        <!-- Steam / LGSM update -->
-        <button id="updateBtn" class="btn" title="Stop PalServer if needed, then update via SteamCMD (or LGSM)"
-            onclick="confirmAndHandleServerAction('updateServer')">
-            Update Server
+        <!-- Steam / LGSM update check -->
+        <button id="updateBtn" class="btn"
+            title="Check Steam for a newer PalServer build; update only if one is available"
+            onclick="confirmAndHandleServerAction('checkForUpdates')">
+            Check for Updates
         </button>
     </div>
     <div id="steamUpdateStatus" class="steam-update-status" style="display:none;" aria-live="polite"></div>

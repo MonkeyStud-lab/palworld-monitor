@@ -168,7 +168,7 @@ def web_app_factory():
     controller.player_manager.get_online_players.return_value = []
     controller.start_server.return_value = True
     controller.stop_server.return_value = True
-    controller.update_server.return_value = (True, "Update started in the background")
+    controller.update_server.return_value = (True, "Checking for updates…")
     controller.get_steam_update_status.return_value = {
         "state": "idle",
         "message": "",

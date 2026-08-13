@@ -170,7 +170,7 @@ class TestIndexPageRendering:
         assert response.status_code == 200
         # Should contain action button elements
         assert b"Start Server" in response.data or b"Stop Server" in response.data
-        assert b"Update Server" in response.data
+        assert b"Check for Updates" in response.data
 
 
 class TestStatusUpdatePolling:
@@ -204,11 +204,11 @@ class TestServerStartStopActions:
 
         assert response.status_code == 200
 
-    def test_update_server_action(self, auth_client):
-        """POST /action?action=updateServer returns steamUpdate status JSON."""
+    def test_check_for_updates_action(self, auth_client):
+        """POST /action?action=checkForUpdates returns steamUpdate status JSON."""
         response = auth_client.post(
             "/action",
-            data={"action": "updateServer"},
+            data={"action": "checkForUpdates"},
             content_type="application/x-www-form-urlencoded",
         )
 

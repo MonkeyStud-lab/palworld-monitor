@@ -19,6 +19,8 @@ from src.player_manager import PlayerManager
 from src.banlist_manager import BanlistManager
 from src.events import bus, Event
 from src.steam_update import (
+    check_lgsm_update,
+    check_steam_update,
     resolve_install_dir,
     resolve_steamcmd_path,
     run_lgsm_update,
@@ -172,25 +174,25 @@ class PalWorldController:
             return dict(self._steam_update_status)
 
     def update_server(self):
-        """Stop PalServer if needed, then update via SteamCMD or LGSM in a background thread."""
+        """Check for Steam/LGSM updates; apply them only when a newer build exists."""
         with self._update_lock:
             if self._steam_update_status.get("state") == "running":
-                return False, "An update is already in progress"
+                return False, "An update check is already in progress"
             self._steam_update_status = {
                 "state": "running",
-                "message": "Update started…",
+                "message": "Checking for updates…",
             }
         # Publish outside the lock so SSE subscribers don't block the worker start.
         bus.publish(
             Event.STEAM_UPDATE_STATUS,
-            {"state": "running", "message": "Update started…"},
+            {"state": "running", "message": "Checking for updates…"},
         )
 
         self._steam_update_thread = threading.Thread(
             target=self._steam_update_worker, daemon=True
         )
         self._steam_update_thread.start()
-        return True, "Update started in the background"
+        return True, "Checking for updates…"
 
     def _set_steam_update_status(self, state, message):
         with self._update_lock:
@@ -203,23 +205,14 @@ class PalWorldController:
 
     def _steam_update_worker(self):
         try:
-            self._cancel_auto_stop_delay()
-
-            if self.is_palworld_process_running():
-                self._set_steam_update_status("running", "Stopping PalServer…")
-                self.stop_server()
-                deadline = time.time() + 120
-                while self.is_palworld_process_running():
-                    if time.time() >= deadline:
-                        self._set_steam_update_status(
-                            "error", "Timed out waiting for PalServer to stop"
-                        )
-                        return
-                    time.sleep(1)
+            self._set_steam_update_status("running", "Checking for updates…")
 
             if getattr(settings, "useLGSM", False):
-                self._set_steam_update_status("running", "Updating via LGSM…")
-                ok, message = run_lgsm_update(settings.palworldServerExePath)
+                available, check_message = check_lgsm_update(
+                    settings.palworldServerExePath
+                )
+                steamcmd = None
+                install_dir = None
             else:
                 steamcmd = resolve_steamcmd_path()
                 install_dir = resolve_install_dir()
@@ -236,6 +229,36 @@ class PalWorldController:
                         "Set palserver.steamcmdInstallDir in settings.yaml",
                     )
                     return
+                available, check_message = check_steam_update(steamcmd, install_dir)
+
+            if available is None:
+                self._set_steam_update_status("error", check_message)
+                return
+            if not available:
+                self._set_steam_update_status("success", "Up to date")
+                return
+
+            self._set_steam_update_status("running", check_message)
+            self._cancel_auto_stop_delay()
+
+            if self.is_palworld_process_running():
+                self._set_steam_update_status(
+                    "running", "Update available — stopping PalServer…"
+                )
+                self.stop_server()
+                deadline = time.time() + 120
+                while self.is_palworld_process_running():
+                    if time.time() >= deadline:
+                        self._set_steam_update_status(
+                            "error", "Timed out waiting for PalServer to stop"
+                        )
+                        return
+                    time.sleep(1)
+
+            if getattr(settings, "useLGSM", False):
+                self._set_steam_update_status("running", "Updating via LGSM…")
+                ok, message = run_lgsm_update(settings.palworldServerExePath)
+            else:
                 self._set_steam_update_status(
                     "running", f"Updating via SteamCMD into {install_dir}…"
                 )
