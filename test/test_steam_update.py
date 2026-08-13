@@ -68,6 +68,15 @@ class TestBuildIdParsing:
         '''
         assert parse_public_build_id(sample) == "20123456"
 
+    def test_parse_public_build_id_ignores_depot_manifest_public(self):
+        # Real SteamCMD output has many depot "public" blocks before branches.
+        sample = (
+            '"2394012" { "config" { "oslist" "linux" } "manifests" { "public" '
+            '{ "gid" "7750626597239103317" "size" "5046758742" "download" "4726595200" } } } '
+            '"branches" { "public" { "buildid" "24575149" "timeupdated" "1786503685" } }'
+        )
+        assert parse_public_build_id(sample) == "24575149"
+
     def test_read_local_build_id(self, tmp_path):
         steamapps = tmp_path / "steamapps"
         steamapps.mkdir()

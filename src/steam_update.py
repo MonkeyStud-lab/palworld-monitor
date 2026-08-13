@@ -74,16 +74,34 @@ def read_local_build_id(install_dir: str) -> Optional[str]:
 
 
 def parse_public_build_id(app_info_text: str) -> Optional[str]:
-    """Extract the public-branch buildid from SteamCMD app_info_print output."""
+    """Extract the public-branch buildid from SteamCMD app_info_print output.
+
+    Depot manifests also contain nested ``"public"`` blocks (with ``gid`` /
+    ``size``, not ``buildid``), so we must look under ``"branches"`` specifically.
+    """
     if not app_info_text:
         return None
-    # Prefer the first "public" block, then the buildid inside it.
+
+    # Tight match for branches.public.buildid (common flattened SteamCMD output).
+    match = re.search(
+        r'"branches"\s*\{\s*"public"\s*\{\s*"buildid"\s*"(\d+)"',
+        app_info_text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if match:
+        return match.group(1)
+
+    # Fallback: window starting at "branches", then the public buildid inside it.
     lower = app_info_text.lower()
-    idx = lower.find('"public"')
-    if idx == -1:
+    branches_idx = lower.find('"branches"')
+    if branches_idx == -1:
         return None
-    window = app_info_text[idx : idx + 1200]
-    match = re.search(r'"buildid"\s*"(\d+)"', window, re.IGNORECASE)
+    window = app_info_text[branches_idx : branches_idx + 4000]
+    public_idx = window.lower().find('"public"')
+    if public_idx == -1:
+        return None
+    public_window = window[public_idx : public_idx + 800]
+    match = re.search(r'"buildid"\s*"(\d+)"', public_window, re.IGNORECASE)
     return match.group(1) if match else None
 
 
